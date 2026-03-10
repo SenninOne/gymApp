@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Gym Tracker</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🏋️ Gym Tracker</h1>
+            <button id="theme-toggle" class="theme-toggle" title="Toggle theme">🌙</button>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="content">
+            <!-- Workouts Tab -->
+            <section id="workouts-tab" class="tab active">
+                <div class="container">
+                    <h2>New Workout</h2>
+                    
+                    <div class="input-group">
+                        <label for="workout-notes">Notes (optional)</label>
+                        <textarea id="workout-notes" placeholder="How are you feeling today?"></textarea>
+                    </div>
+
+                    <button id="add-workout-btn" class="btn btn-primary">Start New Workout</button>
+
+                    <hr class="divider">
+
+                    <h3>Active Workout</h3>
+                    <div id="active-workout" class="card hidden">
+                        <div class="workout-header">
+                            <span id="current-exercise-name">Select Exercise</span>
+                        </div>
+
+                        <div id="exercise-selection" class="card selected">
+                            <label>Select Exercise</label>
+                            <select id="exercise-list"></select>
+                            <button id="add-exercise-inline-btn" class="btn btn-small btn-secondary">+ Add Custom</button>
+                        </div>
+
+                        <div id="sets-container"></div>
+
+                        <div class="workout-actions">
+                            <button id="end-workout-btn" class="btn btn-small btn-warning">End Workout</button>
+                            <button id="add-set-btn" class="btn btn-primary">Add Set</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History Tab -->
+            <section id="history-tab" class="tab">
+                <div class="container">
+                    <h2>Workout History</h2>
+                    <div id="workouts-list" class="workouts-list">
+                        <!-- Workout items will be loaded here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Progress Tab -->
+            <section id="progress-tab" class="tab">
+                <div class="container">
+                    <h2>Progress Tracking</h2>
+                    
+                    <div class="input-group">
+                        <label for="progress-exercise">Select Exercise</label>
+                        <select id="progress-exercise">
+                            <!-- Exercises populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="card chart-container">
+                        <canvas id="progress-chart"></canvas>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="metric-type">Metric</label>
+                        <select id="metric-type">
+                            <option value="max-weight">Max Weight</option>
+                            <option value="total-volume">Total Volume</option>
+                            <option value="last-workout">Last Workout Weight</option>
+                        </select>
+                    </div>
+
+                    <button id="update-chart-btn" class="btn btn-primary">Update Chart</button>
+                </div>
+            </section>
+
+            <!-- More/Exercises Tab -->
+            <section id="exercises-tab" class="tab">
+                <div class="container">
+                    <h2>Exercise Library</h2>
+                    
+                    <div class="input-group">
+                        <button id="add-custom-exercise-btn" class="btn btn-primary">+ Add Custom Exercise</button>
+                    </div>
+
+                    <div id="exercise-library" class="exercise-list">
+                        <!-- Exercises populated dynamically -->
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-tab="workouts-tab">
+                <span class="icon">📝</span>
+                <span>Workout</span>
+            </button>
+            <button class="nav-btn" data-tab="history-tab">
+                <span class="icon">📅</span>
+                <span>History</span>
+            </button>
+            <button class="nav-btn" data-tab="progress-tab">
+                <span class="icon">📈</span>
+                <span>Progress</span>
+            </button>
+            <button class="nav-btn" data-tab="exercises-tab">
+                <span class="icon">🏋️</span>
+                <span>Exercises</span>
+            </button>
+        </nav>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast hidden"></div>
+
+        <!-- Modals -->
+        <div id="modal-overlay" class="modal-overlay hidden">
+            <div class="modal">
+                <h3 id="modal-title"></h3>
+                <div id="modal-content"></div>
+                <div class="modal-actions">
+                    <button id="modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+                    <button id="modal-confirm-btn" class="btn btn-primary">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Files -->
+    <script src="js/db.js"></script>
+    <script src="js/workouts.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/charts.js"></script>
+</body>
+</html>

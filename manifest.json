@@ -1,0 +1,37 @@
+{
+  "name": "Gym Tracker",
+  "short_name": "GYM",
+  "description": "Track your workouts, monitor your progress, and build strength",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#5eead4",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["fitness", "health"],
+  "shortcuts": [
+    {
+      "name": "New Workout",
+      "url": "/index.html?newWorkout=true",
+      "description": "Start a new workout session"
+    },
+    {
+      "name": "View Progress",
+      "url": "/index.html#progress",
+      "description": "View your progress charts"
+    }
+  ]
+}
