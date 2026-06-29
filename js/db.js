@@ -1,7 +1,7 @@
 class GymDB {
     constructor() {
         this.dbName = 'GymTrackerDB';
-        this.version = 1;
+        this.version = 2;
         this.db = null;
     }
 
@@ -22,53 +22,42 @@ class GymDB {
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                const oldVersion = event.oldVersion;
 
-                // Exercises store
-                if (!db.objectStoreNames.contains('exercises')) {
+                // Initial creation (v0 -> v1)
+                if (oldVersion === 0) {
                     const exerciseStore = db.createObjectStore('exercises', { keyPath: 'id', autoIncrement: true });
                     exerciseStore.createIndex('name', 'name', { unique: false });
-                    
-                    // Add default exercises
-                    const defaultExercises = [
-                        { name: 'Barbell Bench Press' },
-                        { name: 'Barbell Squat' },
-                        { name: 'Deadlift' },
-                        { name: 'Overhead Press' },
-                        { name: 'Barbell Row' },
-                        { name: 'Pull-ups' },
-                        { name: 'Dumbbell Bench Press' },
-                        { name: 'Dumbbell Shoulder Press' },
-                        { name: 'Lat Pulldown' },
-                        { name: 'Leg Press' },
-                        { name: 'Leg Curl' },
-                        { name: 'Leg Extension' },
-                        { name: 'Cable Fly' },
-                        { name: 'Tricep Pushdown' },
-                        { name: 'Bicep Curl' },
-                        { name: 'Lunges' },
-                        { name: 'Plank' },
-                        { name: 'Dips' },
-                        { name: 'Cable Crossover' },
-                        { name: 'Face Pulls' }
-                    ];
+                    exerciseStore.transaction.oncomplete = () => {
+                        const defaultExercises = [
+                            'Barbell Bench Press', 'Barbell Squat', 'Deadlift', 'Overhead Press',
+                            'Barbell Row', 'Pull-ups', 'Dumbbell Bench Press', 'Dumbbell Shoulder Press',
+                            'Lat Pulldown', 'Leg Press', 'Leg Curl', 'Leg Extension', 'Cable Fly',
+                            'Tricep Pushdown', 'Bicep Curl', 'Lunges', 'Plank', 'Dips',
+                            'Cable Crossover', 'Face Pulls'
+                        ];
+                        defaultExercises.forEach(name => exerciseStore.add({ name, restPeriodHours: 48 }));
+                    };
 
-                    defaultExercises.forEach(exercise => {
-                        exerciseStore.add(exercise);
-                    });
-                }
-
-                // Workouts store
-                if (!db.objectStoreNames.contains('workouts')) {
-                    const workoutStore = db.createObjectStore('workouts', { keyPath: 'id', autoIncrement: true });
-                    workoutStore.createIndex('date', 'date', { unique: false });
-                }
-
-                // Workout Exercises store (links between workouts and exercises)
-                if (!db.objectStoreNames.contains('workoutExercises')) {
+                    db.createObjectStore('workouts', { keyPath: 'id', autoIncrement: true });
                     db.createObjectStore('workoutExercises', { keyPath: 'id', autoIncrement: true });
                 }
 
-                console.log('Database structure created/updated');
+                // Migration: v1 -> v2 (add restPeriodHours to existing exercises)
+                if (oldVersion < 2 && db.objectStoreNames.contains('exercises')) {
+                    const exerciseStore = event.target.transaction.objectStore('exercises');
+                    const request = exerciseStore.openCursor();
+                    request.onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            if (!('restPeriodHours' in cursor.value)) {
+                                cursor.value.restPeriodHours = 48;
+                                cursor.update(cursor.value);
+                            }
+                            cursor.continue();
+                        }
+                    };
+                }
             };
         });
     }
@@ -85,11 +74,11 @@ class GymDB {
         });
     }
 
-    async addExercise(name) {
+    async addExercise(name, restPeriodHours = 48) {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['exercises'], 'readwrite');
             const store = transaction.objectStore('exercises');
-            const exercise = { name };
+            const exercise = { name, restPeriodHours };
             const request = store.add(exercise);
 
             request.onsuccess = () => resolve(request.result);
@@ -310,6 +299,60 @@ class GymDB {
 
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getExerciseRestPeriod(exerciseId) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['exercises'], 'readonly');
+            const store = transaction.objectStore('exercises');
+            const request = store.get(parseInt(exerciseId));
+
+            request.onsuccess = () => {
+                resolve(request.result?.restPeriodHours ?? 48);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async updateExerciseRestPeriod(exerciseId, restPeriodHours) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['exercises'], 'readwrite');
+            const store = transaction.objectStore('exercises');
+
+            store.get(parseInt(exerciseId)).onsuccess = (e) => {
+                const existing = e.target.result;
+                if (existing) {
+                    existing.restPeriodHours = restPeriodHours;
+                    store.put(existing).onsuccess = () => resolve();
+                    return;
+                }
+                resolve();
+            };
+
+            transaction.onerror = () => reject(transaction.error);
+        });
+    }
+
+    async getLastWorkoutDateForExercise(exerciseId) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const workoutExercises = await this.getAllWorkoutExercises();
+                const workouts = await this.getAllWorkouts();
+
+                const relevant = workoutExercises
+                    .filter(we => we.exerciseId === parseInt(exerciseId))
+                    .map(we => {
+                        const workout = workouts.find(w => w.id === we.workoutId);
+                        return workout ? workout.date : null;
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => b - a);
+
+                resolve(relevant.length > 0 ? relevant[0] : null);
+            } catch (error) {
+                reject(error);
+            }
         });
     }
 

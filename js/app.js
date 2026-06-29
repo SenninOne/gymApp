@@ -4,7 +4,8 @@ const AppState = {
     exercises: [],
     activeWorkoutId: null,
     currentExerciseId: null,
-    chartInstance: null
+    chartInstance: null,
+    timerInterval: null
 };
 
 // Theme State
@@ -49,7 +50,7 @@ async function loadExercises() {
         populateSelect('#progress-exercise', exercises);
         
         // Render exercise library
-        renderExerciseLibrary(exercises);
+        await renderExerciseLibrary(exercises);
     } catch (error) {
         console.error('Failed to load exercises:', error);
         showToast('Error loading exercises', 'error');
@@ -72,24 +73,44 @@ function populateSelect(selector, items) {
 }
 
 // Render exercise library in More tab
-function renderExerciseLibrary(exercises) {
+async function renderExerciseLibrary(exercises) {
     const container = document.getElementById('exercise-library');
     
     if (!container) return;
     
-    // Sort alphabetically and separate custom from default
     const sortedExercises = exercises.sort((a, b) => a.name.localeCompare(b.name));
     
-    container.innerHTML = sortedExercises.map(exercise => `
-        <div class="exercise-item animate-in">
-            <span class="exercise-name">${escapeHtml(exercise.name)}</span>
-            <button 
-                class="exercise-delete" 
-                onclick="deleteExercise(${exercise.id}, '${escapeHtml(exercise.name)}')"
-                title="Delete exercise">✕
-            </button>
-        </div>
-    `).join('');
+    container.innerHTML = sortedExercises.map(exercise => {
+        const rest = exercise.restPeriodHours ?? 48;
+        const options = [12, 24, 36, 48, 60, 72, 84, 96, 120, 168].map(h =>
+            `<option value="${h}" ${h === rest ? 'selected' : ''}>${h}h</option>`
+        ).join('');
+        return `
+            <div class="exercise-item animate-in" data-exercise-id="${exercise.id}">
+                <span class="exercise-name">${escapeHtml(exercise.name)}</span>
+                <div class="exercise-controls">
+                    <select class="rest-period-select" data-exercise-id="${exercise.id}" onchange="updateExerciseRestPeriod(${exercise.id}, this.value)">
+                        ${options}
+                    </select>
+                    <button 
+                        class="exercise-delete" 
+                        onclick="deleteExercise(${exercise.id}, '${escapeHtml(exercise.name)}')"
+                        title="Delete exercise">✕
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function updateExerciseRestPeriod(id, hours) {
+    try {
+        await db.updateExerciseRestPeriod(parseInt(id), parseInt(hours));
+        showToast(`✓ Rest period set to ${hours}h`);
+    } catch (error) {
+        console.error('Failed to update rest period:', error);
+        showToast('Error updating rest period', 'error');
+    }
 }
 
 // Delete exercise handler
@@ -133,6 +154,7 @@ async function loadWorkouts() {
         AppState.workouts = workouts;
         
         renderWorkoutHistory(workouts);
+        startRestTimers();
     } catch (error) {
         console.error('Failed to load workouts:', error);
         showToast('Error loading workouts', 'error');
@@ -167,6 +189,7 @@ async function renderWorkoutItem(workout) {
     try {
         const workoutExercises = await db.getWorkoutExercises(workout.id);
         const exerciseName = workoutExercises[0]?.exerciseName || 'Unknown Exercise';
+        const exerciseId = workoutExercises[0]?.exerciseId || null;
         
         let totalSets = 0;
         let volume = 0;
@@ -191,8 +214,10 @@ async function renderWorkoutItem(workout) {
             });
         });
         
+        const dataAttrs = exerciseId ? `data-exercise-id="${exerciseId}" data-workout-date="${workout.date}"` : `data-workout-date="${workout.date}"`;
+        
         let html = `
-            <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})">
+            <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})" ${dataAttrs}>
                 <div class="workout-header">
                     <span class="exercise-name">${escapeHtml(exerciseName)}</span>
                     <span class="workout-date">${formattedDate}</span>
@@ -203,20 +228,21 @@ async function renderWorkoutItem(workout) {
             html += `<div class="workout-notes">${escapeHtml(workout.notes)}</div>`;
         }
         
-        const statLabelSize = '13px';
-        const setsHtml = completedSets.map(set => 
-            `<span class="set-badge-inline-small">${set.weight}kg × ${set.reps} reps</span>`
-        ).join('');
-        
         html += `
-                <div class="workout-actions">
+                <div class="rest-progress-wrapper">
+                    <div class="rest-progress-bar" style="width: 0%;"></div>
+                    <span class="rest-timer-badge" style="color: var(--accent-primary);"></span>
+                </div>
+                <div class="workout-item-actions">
                     <div class="stat-group">
                         <span class="stat-value">${totalSets}</span>
                         <span class="stat-label-large">SET</span>
                         <span class="stat-value">${volume}</span>
                         <span class="stat-label-large">KG</span>
                     </div>
-                    <div class="sets-scroll-wrapper">${setsHtml}</div>
+                    <div class="sets-scroll-wrapper">${completedSets.map(set => 
+                        `<span class="set-badge-inline-small">${set.weight}kg × ${set.reps} reps</span>`
+                    ).join('')}</div>
                 </div>
             </div>
         `;
@@ -495,6 +521,104 @@ function setupPWA() {
     }
 }
 
+function getRestColor(elapsedPercent) {
+    if (elapsedPercent < 0) elapsedPercent = 0;
+    if (elapsedPercent > 100) elapsedPercent = 100;
+    
+    const hslStops = [
+        { pct: 0, h: 0, s: 80, l: 55 },
+        { pct: 20, h: 0, s: 80, l: 55 },
+        { pct: 33, h: 25, s: 90, l: 55 },
+        { pct: 66, h: 50, s: 90, l: 55 },
+        { pct: 80, h: 50, s: 90, l: 55 },
+        { pct: 100, h: 145, s: 65, l: 48 }
+    ];
+    
+    let lower = hslStops[0], upper = hslStops[hslStops.length - 1];
+    for (let i = 0; i < hslStops.length - 1; i++) {
+        if (elapsedPercent >= hslStops[i].pct && elapsedPercent <= hslStops[i + 1].pct) {
+            lower = hslStops[i];
+            upper = hslStops[i + 1];
+            break;
+        }
+    }
+    
+    const range = upper.pct - lower.pct || 1;
+    const t = (elapsedPercent - lower.pct) / range;
+    const h = lower.h + (upper.h - lower.h) * t;
+    const s = lower.s + (upper.s - lower.s) * t;
+    const l = lower.l + (upper.l - lower.l) * t;
+    
+    return `hsl(${h}, ${s}%, ${l}%)`;
+}
+
+function formatTimeRemaining(ms) {
+    if (ms <= 0) return 'Ready!';
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+}
+
+function updateRestTimers() {
+    const items = document.querySelectorAll('.workout-item[data-exercise-id]');
+    const now = Date.now();
+    
+    items.forEach(item => {
+        const exerciseId = item.dataset.exerciseId;
+        const workoutDate = parseInt(item.dataset.workoutDate);
+        
+        const elapsedMs = now - workoutDate;
+        const restMs = (AppState._restPeriodCache?.[exerciseId] ?? 48) * 3600000;
+        const elapsedPercent = Math.min(100, Math.max(0, (elapsedMs / restMs) * 100));
+        const remainingMs = restMs - elapsedMs;
+        
+        const color = getRestColor(elapsedPercent);
+        
+        const bar = item.querySelector('.rest-progress-bar');
+        const timerBadge = item.querySelector('.rest-timer-badge');
+        
+        if (bar) {
+            bar.style.width = `${elapsedPercent}%`;
+            bar.style.backgroundColor = color;
+        }
+        
+        if (timerBadge) {
+            timerBadge.textContent = formatTimeRemaining(remainingMs);
+            timerBadge.style.color = color;
+        }
+        
+        item.style.borderLeft = `4px solid ${color}`;
+    });
+}
+
+function startRestTimers() {
+    if (AppState.timerInterval) clearInterval(AppState.timerInterval);
+    if (AppState.smoothInterval) clearInterval(AppState.smoothInterval);
+    
+    const loadRestPeriods = async () => {
+        const items = document.querySelectorAll('.workout-item[data-exercise-id]');
+        const cache = {};
+        
+        const promises = [...items].map(async (item) => {
+            const exerciseId = item.dataset.exerciseId;
+            if (!cache[exerciseId]) {
+                cache[exerciseId] = await db.getExerciseRestPeriod(exerciseId);
+            }
+        });
+        
+        await Promise.all(promises);
+        AppState._restPeriodCache = cache;
+        updateRestTimers();
+    };
+    
+    loadRestPeriods();
+    AppState.timerInterval = setInterval(loadRestPeriods, 60000);
+    AppState.smoothInterval = setInterval(updateRestTimers, 1000);
+}
+
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
@@ -507,4 +631,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.loadExercises = loadExercises;
     window.loadWorkouts = loadWorkouts;
     window.updateProgressChart = updateProgressChart;
+    window.updateExerciseRestPeriod = updateExerciseRestPeriod;
 });
