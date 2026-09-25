@@ -1,5 +1,6 @@
 // Workout State
 let currentSetNumber = 1;
+let currentExerciseIdInWorkout = null;
 
 function setupWorkoutElements() {
     const btn = document.getElementById('add-workout-btn');
@@ -13,6 +14,20 @@ function setupWorkoutElements() {
     
     // Add set button
     document.getElementById('add-set-btn')?.addEventListener('click', addSet);
+    
+    // Add exercise button
+    document.getElementById('add-exercise-btn')?.addEventListener('click', () => {
+        const select = document.getElementById('exercise-list');
+        const exerciseId = select.value;
+        
+        if (!exerciseId) {
+            showToast('Please select an exercise first!', 'error');
+            return;
+        }
+        
+        const selectedName = select.options[select.selectedIndex]?.text || 'Unknown';
+        addCustomSets(parseInt(exerciseId), selectedName);
+    });
     
     // Add set after exercise selection change
     const exerciseList = document.getElementById('exercise-list');
@@ -169,13 +184,13 @@ async function handleExerciseSelection(e) {
     
     if (!exerciseId || !AppState.activeWorkoutId) return;
     
-    // Reset current sets
-    clearCurrentSets();
+    // Select the exercise in the workout
+    currentExerciseIdInWorkout = parseInt(exerciseId);
     
-    // Auto-load 5 default sets for this exercise
-    await addCustomSets(parseInt(exerciseId), e.target.options[e.target.selectedIndex].text);
+    // Render all exercises in the workout
+    await renderActiveExercises(AppState.activeWorkoutId);
     
-    AppState.currentExerciseId = parseInt(exerciseId);
+    showToast('✓ Exercise added to workout');
 }
 
 // Add custom sets with modal input
@@ -201,13 +216,16 @@ async function addCustomSets(selectedExerciseId, selectedName) {
                     await db.addWorkoutExercise(AppState.activeWorkoutId, selectedExerciseId, sets);
                     
                     // Reload active workout UI
-                    updateActiveWorkoutUI();
+                    await renderActiveExercises(AppState.activeWorkoutId);
                     
                     if (sets.length > 0) {
                         showToast(`✓ Added ${sets.length} set(s)`);
                     } else {
                         showToast('Added exercise (add sets now)');
                     }
+                    
+                    // Load sets for this exercise (with small delay to ensure save completed)
+                    setTimeout(() => selectExerciseForWorkout(selectedExerciseId), 100);
                 } catch (error) {
                     console.error('Failed to add exercise to workout:', error);
                     showToast('Error adding exercise', 'error');
@@ -221,7 +239,7 @@ async function addCustomSets(selectedExerciseId, selectedName) {
 
 // Add a new empty set row in the current workout view
 async function addSet() {
-    if (!AppState.activeWorkoutId || !AppState.currentExerciseId) {
+    if (!AppState.activeWorkoutId || !currentExerciseIdInWorkout) {
         showToast('Select an exercise first!', 'error');
         return;
     }
@@ -276,7 +294,7 @@ async function addSet() {
         const workoutExercises = await db.getWorkoutExercises(AppState.activeWorkoutId);
         
         for (const we of workoutExercises) {
-            if (we.exerciseId === AppState.currentExerciseId) {
+            if (we.exerciseId === currentExerciseIdInWorkout) {
                 we.sets.push({ weight: '', reps: '', completed: false });
                 await db.updateWorkoutExercise(we.id, { sets: we.sets });
                 break;
@@ -310,7 +328,7 @@ async function updateSet(setNum, field, element) {
         let foundExercise = false;
         
         for (const we of workoutExercises) {
-            if (we.exerciseId === AppState.currentExerciseId && we.sets[setIndex]) {
+            if (we.exerciseId === currentExerciseIdInWorkout && we.sets[setIndex]) {
                 // Mark first set as completed
                 let markedCompleted = false;
 
@@ -332,7 +350,7 @@ async function updateSet(setNum, field, element) {
         }
 
         if (!foundExercise) {
-            showToast('Please select an exercise first', 'error');
+            showToast('Please select an exercise from the list', 'error');
         }
     } catch (error) {
         console.error('Failed to update set:', error);
@@ -345,24 +363,18 @@ async function removeSet(setNum) {
         const workoutExercises = await db.getWorkoutExercises(AppState.activeWorkoutId);
         
         for (const we of workoutExercises) {
-            if (we.exerciseId === AppState.currentExerciseId && we.sets[setNum - 1]) {
-                // Remove this set from the sets array
+            if (we.exerciseId === currentExerciseIdInWorkout && we.sets[setNum - 1]) {
                 we.sets.splice(setNum - 1, 1);
-                
                 await db.updateWorkoutExercise(we.id, { sets: we.sets });
                 
-                // Update UI - remove the element
                 const setElement = document.getElementById(`set-${setNum}`);
                 if (setElement) {
                     setElement.remove();
-                    
-                    // Re-number remaining sets
                     document.querySelectorAll('#sets-container .set-item').forEach((el, index) => {
                         el.querySelector('.set-number').textContent = `Set ${index + 1}`;
                     });
                 }
                 
-                // Decrement the counter
                 currentSetNumber = setNum - 1;
                 break;
             }
@@ -383,35 +395,101 @@ function clearCurrentSets() {
     currentSetNumber = 0;
 }
 
+// Render all active exercises in the workout
+async function renderActiveExercises(workoutId) {
+    try {
+        const workoutExercises = await db.getWorkoutExercises(workoutId);
+        const container = document.getElementById('active-exercises-list');
+        
+        if (!container) return;
+        
+        if (workoutExercises.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #575a6e; padding: 20px;">No exercises yet. Add one above!</p>';
+            return;
+        }
+        
+        const cards = workoutExercises.map(we => {
+            const isSelected = we.exerciseId === currentExerciseIdInWorkout ? 'active' : '';
+            const setCount = (we.sets || []).length;
+            const completedCount = (we.sets || []).filter(s => s.completed).length;
+            
+            return `
+                <div class="exercise-card ${isSelected}" onclick="selectExerciseForWorkout(${we.exerciseId})">
+                    <div class="exercise-card-header">
+                        <span class="exercise-card-name">${we.exerciseName}</span>
+                        <span class="exercise-card-stats">${completedCount}/${setCount} sets</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = cards;
+    } catch (error) {
+        console.error('Failed to render active exercises:', error);
+    }
+}
+
+// Select an exercise from the workout (for editing sets)
+function selectExerciseForWorkout(exerciseId) {
+    currentExerciseIdInWorkout = exerciseId;
+    renderActiveExercises(AppState.activeWorkoutId);
+    
+    // Load the sets for this exercise
+    loadSetsForExercise(exerciseId);
+}
+
+// Load sets for a specific exercise into the sets container
+async function loadSetsForExercise(exerciseId) {
+    const container = document.getElementById('sets-container');
+    if (!container) {
+        console.log('No sets-container found');
+        return;
+    }
+    
+    try {
+        const workoutExercises = await db.getWorkoutExercises(AppState.activeWorkoutId);
+        console.log('Workout exercises:', workoutExercises);
+        const exercise = workoutExercises.find(we => we.exerciseId === exerciseId);
+        console.log('Found exercise:', exercise);
+        
+        if (!exercise) {
+            console.log('Exercise not found');
+            return;
+        }
+        
+        renderSets(exercise);
+    } catch (error) {
+        console.error('Failed to load sets:', error);
+    }
+}
+
 // Update active workout UI
 async function updateActiveWorkoutUI() {
     const activeWorkoutDiv = document.getElementById('active-workout');
-    const currentExerciseName = document.getElementById('current-exercise-name');
+    const exercisesList = document.getElementById('active-exercises-list');
     
     if (AppState.activeWorkoutId) {
-        // Show active workout container
         activeWorkoutDiv?.classList.remove('hidden');
         
-        // Load and display exercises for this workout
         try {
             const workoutExercises = await db.getWorkoutExercises(AppState.activeWorkoutId);
             
             if (workoutExercises.length > 0) {
-                // Get first exercise details
-                const firstExercise = workoutExercises[0];
-                currentExerciseName.textContent = firstExercise.exerciseName;
-                
-                // Select it in dropdown
-                const exerciseSelect = document.getElementById('exercise-list');
-                if (exerciseSelect && firstExercise.exerciseId) {
-                    exerciseSelect.value = firstExercise.exerciseId;
-                    AppState.currentExerciseId = firstExercise.exerciseId;
-                    
-                    // Render sets
-                    renderSets(firstExercise);
+                // Set first exercise as current if none selected
+                if (!currentExerciseIdInWorkout) {
+                    currentExerciseIdInWorkout = workoutExercises[0].exerciseId;
                 }
+                
+                // Render all exercises
+                await renderActiveExercises(AppState.activeWorkoutId);
+                
+                // Load sets for current exercise
+                loadSetsForExercise(currentExerciseIdInWorkout);
             } else {
-                currentExerciseName.textContent = 'Select Exercise';
+                if (exercisesList) {
+                    exercisesList.innerHTML = 
+                        '<p style="text-align: center; color: #575a6e; padding: 20px;">No exercises yet. Add one above!</p>';
+                }
             }
         } catch (error) {
             console.error('Failed to load workout exercises:', error);
@@ -481,6 +559,9 @@ function renderSets(workoutExercise) {
     });
 }
 
+// Expose selectExerciseForWorkout to window
+window.selectExerciseForWorkout = selectExerciseForWorkout;
+
 // Add custom exercise inline (when already started workout)
 async function addCustomExerciseInline() {
     showModal(
@@ -502,7 +583,6 @@ async function addCustomExerciseInline() {
                 const newExerciseId = await db.addExercise(name);
                 await loadExercises();
                 
-                // Select the new custom exercise
                 const select = document.getElementById('exercise-list');
                 select.value = newExerciseId;
                 
@@ -528,3 +608,6 @@ window.removeSet = removeSet;
 window.updateSet = updateSet;
 window.addCustomExerciseInline = addCustomExerciseInline;
 window.handleExerciseSelection = handleExerciseSelection;
+window.renderActiveExercises = renderActiveExercises;
+window.selectExerciseForWorkout = selectExerciseForWorkout;
+window.loadSetsForExercise = loadSetsForExercise;

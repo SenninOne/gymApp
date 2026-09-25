@@ -365,6 +365,41 @@ body {
     text-align: right;
 }
 
+.exercise-card {
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.exercise-card:hover {
+    background-color: var(--bg-accent);
+}
+
+.exercise-card.active {
+    border-color: var(--accent-primary);
+    background-color: var(--bg-accent);
+}
+
+.exercise-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.exercise-card-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.exercise-card-stats {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 .stat-group {
     display: flex;
     align-items: center;

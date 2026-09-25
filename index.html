@@ -38,21 +38,15 @@
 
                     <h3>Active Workout</h3>
                     <div id="active-workout" class="card hidden">
-                        <div class="workout-header">
-                            <span id="current-exercise-name">Select Exercise</span>
-                        </div>
-
-                        <div id="exercise-selection" class="card selected">
-                            <label>Select Exercise</label>
+                        <div class="exercise-selection-row">
                             <select id="exercise-list"></select>
-                            <button id="add-exercise-inline-btn" class="btn btn-small btn-secondary">+ Add Custom</button>
+                            <button id="add-exercise-inline-btn" class="btn btn-small btn-secondary">+ Custom</button>
+                            <button id="add-exercise-btn" class="btn btn-small btn-primary">+ Add Exercise</button>
                         </div>
-
+                        <div id="active-exercises-list"></div>
                         <div id="sets-container"></div>
-
                         <div class="active-workout-actions">
                             <button id="end-workout-btn" class="btn btn-small btn-warning">End Workout</button>
-                            <button id="add-set-btn" class="btn btn-primary">Add Set</button>
                         </div>
                     </div>
                 </div>

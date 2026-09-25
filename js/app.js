@@ -178,25 +178,48 @@ async function renderWorkoutHistory(workouts) {
         return;
     }
     
-    const renderedItems = await Promise.all(workouts.map(workout => renderWorkoutItem(workout)));
-    container.innerHTML = renderedItems.join('');
+    // Render each workout's exercises as separate cards
+    const allCards = [];
+    for (const workout of workouts) {
+        const cards = await renderWorkoutExercises(workout);
+        allCards.push(...cards.map(c => c.html));
+    }
+    container.innerHTML = allCards.join('');
 }
 
-// Render single workout item
+// Render single workout item (for backward compatibility)
 async function renderWorkoutItem(workout) {
+    const cards = await renderWorkoutExercises(workout);
+    return cards.join('');
+}
+
+// Render each exercise in a workout as a separate card
+async function renderWorkoutExercises(workout) {
     const formattedDate = formatDate(workout.date);
+    const cards = [];
     
     try {
         const workoutExercises = await db.getWorkoutExercises(workout.id);
-        const exerciseName = workoutExercises[0]?.exerciseName || 'Unknown Exercise';
-        const exerciseId = workoutExercises[0]?.exerciseId || null;
         
-        let totalSets = 0;
-        let volume = 0;
-        let completedSets = [];
+        if (workoutExercises.length === 0) {
+            return [{
+                html: `
+                    <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})">
+                        <div class="workout-header">
+                            <span class="exercise-name">Empty Workout</span>
+                            <span class="workout-date">${formattedDate}</span>
+                        </div>
+                    </div>
+                `
+            }];
+        }
         
-        workoutExercises.forEach(ex => {
-            (ex.sets || []).forEach((set, index) => {
+        for (const we of workoutExercises) {
+            let totalSets = 0;
+            let volume = 0;
+            let completedSets = [];
+            
+            (we.sets || []).forEach((set, index) => {
                 if (set.completed) {
                     totalSets++;
                     const weight = parseFloat(set.weight) || 0;
@@ -212,50 +235,55 @@ async function renderWorkoutItem(workout) {
                     }
                 }
             });
-        });
-        
-        const dataAttrs = exerciseId ? `data-exercise-id="${exerciseId}" data-workout-date="${workout.date}"` : `data-workout-date="${workout.date}"`;
-        
-        let html = `
-            <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})" ${dataAttrs}>
-                <div class="workout-header">
-                    <span class="exercise-name">${escapeHtml(exerciseName)}</span>
-                    <span class="workout-date">${formattedDate}</span>
+            
+            const exerciseId = we.exerciseId;
+            const dataAttrs = exerciseId ? `data-exercise-id="${exerciseId}" data-workout-date="${workout.date}"` : `data-workout-date="${workout.date}"`;
+            
+            let html = `
+                <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})" ${dataAttrs}>
+                    <div class="workout-header">
+                        <span class="exercise-name">${escapeHtml(we.exerciseName)}</span>
+                        <span class="workout-date">${formattedDate}</span>
+                    </div>
+            `;
+            
+            if (workout.notes) {
+                html += `<div class="workout-notes">${escapeHtml(workout.notes)}</div>`;
+            }
+            
+            html += `
+                    <div class="rest-progress-wrapper">
+                        <div class="rest-progress-bar" style="width: 0%;"></div>
+                        <span class="rest-timer-badge" style="color: var(--accent-primary);"></span>
+                    </div>
+                    <div class="workout-item-actions">
+                        <div class="stat-group">
+                            <span class="stat-value">${totalSets}</span>
+                            <span class="stat-label-large">SET</span>
+                            <span class="stat-value">${volume}</span>
+                            <span class="stat-label-large">KG</span>
+                        </div>
+                        <div class="sets-scroll-wrapper">${completedSets.map(set => 
+                            `<span class="set-badge-inline-small">${set.weight}kg × ${set.reps} reps</span>`
+                        ).join('')}</div>
+                    </div>
                 </div>
-        `;
-        
-        if (workout.notes) {
-            html += `<div class="workout-notes">${escapeHtml(workout.notes)}</div>`;
+            `;
+            
+            cards.push({ html });
         }
         
-        html += `
-                <div class="rest-progress-wrapper">
-                    <div class="rest-progress-bar" style="width: 0%;"></div>
-                    <span class="rest-timer-badge" style="color: var(--accent-primary);"></span>
-                </div>
-                <div class="workout-item-actions">
-                    <div class="stat-group">
-                        <span class="stat-value">${totalSets}</span>
-                        <span class="stat-label-large">SET</span>
-                        <span class="stat-value">${volume}</span>
-                        <span class="stat-label-large">KG</span>
-                    </div>
-                    <div class="sets-scroll-wrapper">${completedSets.map(set => 
-                        `<span class="set-badge-inline-small">${set.weight}kg × ${set.reps} reps</span>`
-                    ).join('')}</div>
-                </div>
-            </div>
-        `;
-        
-        return html;
+        return cards;
     } catch (error) {
-        console.error('Failed to render workout item:', error);
-        return `
-            <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})">
-                <div class="workout-date">${formattedDate}</div>
-                <p style="color: #f87171; font-size: 12px;">Error loading workout data</p>
-            </div>
-        `;
+        console.error('Failed to render workout exercises:', error);
+        return [{
+            html: `
+                <div class="workout-item animate-in" onclick="viewWorkoutDetails(${workout.id})">
+                    <div class="workout-date">${formattedDate}</div>
+                    <p style="color: #f87171; font-size: 12px;">Error loading workout data</p>
+                </div>
+            `
+        }];
     }
 }
 
